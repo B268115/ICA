@@ -1,6 +1,6 @@
 # Programme to analyze protein from NCBI
 # Written by s2762031
-# Version 1, 22 Nov 2024
+# Version 4, 8 Dec 2024
 
 #---0. Preparation------------------------------------------------------------------------------------------------------------#
 # Import the required modules
@@ -13,10 +13,10 @@ import sys
 our_output_directory = "./Our_Output"
 
 # Welcome message
-print("-----------------------WELCOME TO TINY PROTEIN ANALYZER------------------------------------------")
+print("-----------------------WELCOME TO TINY PROTEIN ANALYZER----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------")
 print("glucose-6-phosphatase Aves")
 
-#---1. Search protein from NCBI--------------------------------------------------------------------------------------------------#
+#---1. Search protein from NCBI------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
 ## Add input from user: the name of the protein, and organism
 #print("please write down your answer in lowercase and put '-' instead of space")
 name_protein = input("What is the name of the protein?\n").strip()
@@ -80,7 +80,7 @@ print(f'Average length of your sequences:{average_length}')
 if average_length >= 1000:
    raise ValueError("I am sorry, the average num of your aa are too big for us to handle. Our limit is 1000 aa. Please search different protein name or organism.")
 
-#---2. Get the Protein Sequences-------------------------------------------------------------------------------------------------------------------#
+#---2. Get the Protein Sequences-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
 ## 2.A define a function to download .fasta
 def download_protein_sequences(name_protein, name_organism, our_output_directory):
     fasta_file_name = "protein_sequence.fasta"
@@ -90,7 +90,7 @@ def download_protein_sequences(name_protein, name_organism, our_output_directory
     with open(fasta_file_path, "w") as file:
         subprocess.run(request_NCBI_2, shell=True, text=True, stdout=file)
 
-    print(f"We successfully downloaded your protein fasta. Check the Output folder: {fasta_file_path}")
+    print(f"We successfully downloaded your protein fasta. Check the Output folder: {fasta_file_path}\n\n")
 
 ## 2.B Ask the user again, whether they want to keep continue or not
 if len(unique_species)==0:
@@ -98,13 +98,13 @@ if len(unique_species)==0:
     sys.exit()
 elif len(unique_species) > 1:
     while True:  # Loop for error trapping
-        confirmation = input("Your data seems to have more than one species. Would you like to continue? (yes/no): ").lower()
+        confirmation = input("Your data seems to have more than one species. Would you like to continue? (yes/no):\n").lower()
         if confirmation == "yes":
-            print("You chose 'yes'. We will download your protein sequences.")
+            print("You choose 'yes'. We will download your protein sequences.")
             download_protein_sequences(name_protein, name_organism, our_output_directory)
             break # moving on from the while loop
         elif confirmation == "no":
-            print("You chose 'no'. Thank you for using the Tiny Protein Analyzer. Have a nice day!")
+            print("You choose 'no'. Thank you for using the Tiny Protein Analyzer. Have a nice day!")
             sys.exit()
         else:
             print("Invalid input. Please type 'yes' or 'no'.")
@@ -113,5 +113,107 @@ else:
    download_protein_sequences(name_protein, name_organism, our_output_directory)
 
 
-#---3. Filter Sequences Prior to Analyze the Level of Conservation-------------------------------------------------------------------------------------------------------------------------#
-print(f'Starting to analyze conservation level between protein sequences')
+#---3. Filter Sequences Prior to Analyze the Level of Conservation----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
+print("---------------Pre-Process: Filter Out non complete Protein Seq---------------------------------------------------------------------------------------------------------------------------------------------------------------------------")
+## 3.A Path to the pullseq .exe
+pullseq_path = "/localdisk/data/BPSM/OptionalPythonICA/pullseq"
+
+## 3.B Run pullseq command
+input_pullseq = "Our_Output/protein_sequence.fasta"
+output_pullseq = "Our_Output/filtered_protein_sequences.fasta"
+### before filtering the sequences, define the max and min length of sequences
+max_length = round(average_length + 200)
+min_length = round(average_length - 100)
+print(f'The max length of your input: {max_length} aa')
+print(f'The min length of your input: {min_length} aa')
+### get the header line of excluded sequences
+header_excluded = "Our_Output/header_excluded_pullseq.txt"
+with open(input_pullseq, "r") as input, open(header_excluded,"w") as output:
+   for line in input:
+      if line.startswith(">"):
+         header = line[1:].strip()
+         if "partial" in header:
+            output.write(header + "\n")
+### define the command for pullseq. In this script we only choose complete seq, length 300-500
+pullseq_command = (f'{pullseq_path} -i {input_pullseq} -v -m {min_length} -a {max_length} -n {header_excluded} -e > {output_pullseq}')
+#run05 = subprocess.run(pullseq_command,shell=True, check= True)
+try:
+    run05 = subprocess.run(pullseq_command, shell=True, check=True)
+    print(f"Pullseq completed successfully! Output saved to {output_pullseq}\n")
+except subprocess.CalledProcessError as e:
+    print(f"Error running pullseq: {e}")
+
+## 3.C Rename header of filtered fasta
+### currently the header of each sequences contain space. We will replace the space with _ and only grab the ID code and species name inside the brackets.
+### define the input and output
+input_rename = output_pullseq
+output_rename = "Our_Output/filtered_protein_sequences_rename.fasta"
+### read the content of input files
+with open(input_rename, "r") as input_file:
+   lines = input_file.readlines()
+### rename the header and rewrite the same file.
+with open(output_rename, "w") as output_file:
+   for line in lines:
+      if line.startswith(">"):
+         # find the id code in header
+         header_id = line.split(" ",1)
+         ID = header_id[0]
+         # find the organism name in header (inside the bracket pattern)
+         header_organism_start = line.find("[") + 1
+         header_organism_stop = line.find("]")
+         organism = line[header_organism_start:header_organism_stop]
+         # assembly the new header
+         new_header = f'{ID}_{organism}\n'.replace(" ","_")
+         # write the new header to our output file
+         output_file.write(new_header)
+      else:
+         output_file.write(line)
+print(f'The header in fasta file: {input_rename} has been updated to: {output_rename}\n\n')
+
+
+#---4. Multiple Sequence Alignment: Clustal-----------------------------------------------------------------------------------------------------------------------------------#
+print("---------------Process_01: Multiple Sequence Allignment using Clustal-----------------------------")
+## 4.A Path to clustalo .exe
+### since the .exe alreade in /usr/bin, we dont have to specify it again.
+
+## 4.B Run the clustalo command
+### define the input and output location
+input_clustalo = output_rename
+print(f'this is the input for clustalo:\n{input_clustalo}')
+output_clustalo = "Our_Output/filtered_protein_sequences_aligned.msf"
+### define the command for clustalo
+clustalo_command = (f'clustalo -i {input_clustalo} -t protein --force --threads=4 --outfmt=msf -o {output_clustalo}')
+#run06 = subprocess.run(clustalo_command,shell=True,check= True)
+try:
+    run06 = subprocess.run(clustalo_command, shell=True, check=True)
+    print(f"Clustalo completed successfully! Output saved to {output_clustalo}\n\n")
+except subprocess.CalledProcessError as e:
+    print(f"Error running clustalo: {e}")
+
+## 4.D Run Showalign (Emboss) to preview the results
+### define the input and output
+input_showalign = output_clustalo
+print(f'this is the input for showing the result of clustalo:\n{input_showalign}')
+output_showalign = "Our_Output/filtered_protein_sequences_aligned_pretty_format.txt"
+### define the command for showalign
+showalign_command = (f'showalign -show=d {input_showalign} -outfile {output_showalign}')
+#run07 = subprocess.run(showalign_command,shell=True,check= True)
+try:
+    run07 = subprocess.run(showalign_command, shell=True, check=True)
+    run08 = subprocess.run(f'more {output_showalign}', shell=True, check=True)
+    print(f"Preview clustal omega result is completed. To see more, open: {output_showalign}\n\n")
+except subprocess.CalledProcessError as e:
+    print(f"Error running preview output clustalo: {e}")
+
+
+#---5. Plot conservation of sequence alignment: Plotcon----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
+print("---------------Process_02: Plot conservation of sequence alignment using Plotcon----------------------------------------------------------------------------------------------")
+## 5.A Path to plotcon
+### since the .exe alreade in /usr/bin, we dont have to specify it again.
+
+## 5.B Run the plotcon command
+### define the input and output location
+input_plotcon = output_clustalo
+print(f'this is the input for plotcon analyses:\n{input_plotcon}')
+
+
