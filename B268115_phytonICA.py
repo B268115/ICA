@@ -7,6 +7,7 @@
 import os, subprocess
 import re
 import sys
+import shutil
 
 # Make an Output folder and the directory
 # Our_Output = os.mkdir("./Our_Output")
@@ -190,12 +191,13 @@ try:
 except subprocess.CalledProcessError as e:
     print(f"Error running clustalo: {e}")
 
-## 4.D Run Showalign (Emboss) to preview the results
+## 4.C Run Showalign (Emboss) to preview the results
 ### define the input and output
 input_showalign = output_clustalo
 print(f'this is the input for showing the result of clustalo:\n{input_showalign}')
 output_showalign = "Our_Output/filtered_protein_sequences_aligned_pretty_format.txt"
 ### define the command for showalign
+### we will preview the disimilarities
 showalign_command = (f'showalign -show=d {input_showalign} -outfile {output_showalign}')
 #run07 = subprocess.run(showalign_command,shell=True,check= True)
 try:
@@ -211,9 +213,22 @@ print("---------------Process_02: Plot conservation of sequence alignment using 
 ## 5.A Path to plotcon
 ### since the .exe alreade in /usr/bin, we dont have to specify it again.
 
-## 5.B Run the plotcon command
-### define the input and output location
-input_plotcon = output_clustalo
-print(f'this is the input for plotcon analyses:\n{input_plotcon}')
+## 5.B Run the plotcon
+### define the input and output
+input_plotcon = "Our_Output/filtered_protein_sequences_aligned.msf"
+output_plotcon_directory = "Our_Output/Output_Plotcon"
+#### To prevent upcoming error, when repeat runing nano. We need to make>
+if os.path.exists(output_plotcon_directory):
+   shutil.rmtree(output_plotcon_directory)
+os.mkdir(output_plotcon_directory)
+### define the command for plotcon
+plotcon_command = (f'plotcon -sformat msf {input_plotcon} -winsize 4 -graph png -gdirectory {output_plotcon_directory} -verbose -stdout')
+#run07 = subprocess.run(showalign_command,shell=True,check= True)
+try:
+    run09 = subprocess.run(plotcon_command, shell=True, check=True)
+    run10 = subprocess.run(f'cd "Our_Output/Output_Plotcon" && display *png', shell=True, check=True)
+    print(f"Plot the sequence conservation is completed. The output is saved in directory {output_plotcon_directory}")
+except subprocess.CalledProcessError as e:
+    print(f"Error running preview output plotcon: {e}")
 
-
+#---6. Find the interesting domain: _____ -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
