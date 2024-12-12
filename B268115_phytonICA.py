@@ -1,6 +1,6 @@
 # Programme to analyze protein from NCBI
 # Written by s2762031
-# Version 4, 8 Dec 2024
+# Version 5, 12 Dec 2024
 
 #---0. Preparation------------------------------------------------------------------------------------------------------------#
 # Import the required modules
@@ -116,6 +116,7 @@ else:
 
 #---3. Filter Sequences Prior to Analyze the Level of Conservation----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
 print("---------------Pre-Process: Filter Out non complete Protein Seq---------------------------------------------------------------------------------------------------------------------------------------------------------------------------")
+
 ## 3.A Path to the pullseq .exe
 pullseq_path = "/localdisk/data/BPSM/OptionalPythonICA/pullseq"
 
@@ -144,32 +145,45 @@ try:
 except subprocess.CalledProcessError as e:
     print(f"Error running pullseq: {e}")
 
-## 3.C Rename header of filtered fasta
+## 3.C Rename header of filtered fasta and make the sequence of each sequence as one long string
 ### currently the header of each sequences contain space. We will replace the space with _ and only grab the ID code and species name inside the brackets.
 ### define the input and output
-input_rename = output_pullseq
-output_rename = "Our_Output/filtered_protein_sequences_rename.fasta"
-### read the content of input files
-with open(input_rename, "r") as input_file:
-   lines = input_file.readlines()
-### rename the header and rewrite the same file.
-with open(output_rename, "w") as output_file:
-   for line in lines:
-      if line.startswith(">"):
-         # find the id code in header
-         header_id = line.split(" ",1)
-         ID = header_id[0]
-         # find the organism name in header (inside the bracket pattern)
-         header_organism_start = line.find("[") + 1
-         header_organism_stop = line.find("]")
-         organism = line[header_organism_start:header_organism_stop]
-         # assembly the new header
-         new_header = f'{ID}_{organism}\n'.replace(" ","_")
-         # write the new header to our output file
-         output_file.write(new_header)
-      else:
-         output_file.write(line)
-print(f'The header in fasta file: {input_rename} has been updated to: {output_rename}\n\n')
+input_reformat = output_pullseq
+output_reformat = "Our_Output/filtered_protein_sequences_reformat.fasta"
+### read the content of input files, output from this code is list
+# Read the input file and open the output file
+with open(input_reformat, 'r') as input_file, open(output_reformat, 'w') as output_file:
+    # read the content, turn it into list
+    input_file_content = input_file.readlines()
+    sequence = ""  # Make an  empty string to store the sequence
+    # loop through the list content
+    for line in input_file_content:
+        line = line.strip()  # Remove whitespace or newline in each element list
+        if line.startswith(">"):
+            # If sequence varible not empty, write it before the new header
+            if sequence:
+                output_file.write(sequence + '\n')  # Write the accumulated sequence with a newline
+            # Rename the header
+            ## find the id in header
+            header_id = line.split(" ", 1)
+            ID = header_id[0]
+            ## find the organism name in header (inside the bracket pattern). We will find the position of the bracket
+            header_organism_start = line.find("[") + 1
+            header_organism_stop = line.find("]")
+            organism = line[header_organism_start:header_organism_stop]
+            ## assembly the new header
+            new_header = f'{ID}_{organism}\n'.replace(" ", "_")
+            ## write the new header to our output file
+            output_file.write(new_header)
+            # Reset the sequence for the next protein
+            sequence = ""
+        else:
+            # To write the last sequence
+            sequence += line  # The sequence lines are concatenated together
+    # At the end, write the last sequence (if any)
+    if sequence:
+        output_file.write(sequence + '\n')
+print(f'The header in fasta file: {input_reformat} has been updated to: {output_reformat}\n\n')
 
 
 #---4. Multiple Sequence Alignment: Clustal-----------------------------------------------------------------------------------------------------------------------------------#
@@ -179,7 +193,7 @@ print("---------------Process_01: Multiple Sequence Allignment using Clustal----
 
 ## 4.B Run the clustalo command
 ### define the input and output location
-input_clustalo = output_rename
+input_clustalo = output_reformat
 print(f'this is the input for clustalo:\n{input_clustalo}')
 output_clustalo = "Our_Output/filtered_protein_sequences_aligned.msf"
 ### define the command for clustalo
@@ -202,14 +216,14 @@ showalign_command = (f'showalign -show=d {input_showalign} -outfile {output_show
 #run07 = subprocess.run(showalign_command,shell=True,check= True)
 try:
     run07 = subprocess.run(showalign_command, shell=True, check=True)
-    run08 = subprocess.run(f'more {output_showalign}', shell=True, check=True)
+    run08 = subprocess.run(f'head -20  {output_showalign}', shell=True, check=True)
     print(f"Preview clustal omega result is completed. To see more, open: {output_showalign}\n\n")
 except subprocess.CalledProcessError as e:
     print(f"Error running preview output clustalo: {e}")
 
 
 #---5. Plot conservation of sequence alignment: Plotcon----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
-print("---------------Process_02: Plot conservation of sequence alignment using Plotcon----------------------------------------------------------------------------------------------")
+print("---------------Process_02: Plot conserve area of the sequences  using Plotcon----------------------------------------------------------------------------------------------")
 ## 5.A Path to plotcon
 ### since the .exe alreade in /usr/bin, we dont have to specify it again.
 
@@ -227,8 +241,54 @@ plotcon_command = (f'plotcon -sformat msf {input_plotcon} -winsize 4 -graph png 
 try:
     run09 = subprocess.run(plotcon_command, shell=True, check=True)
     run10 = subprocess.run(f'cd "Our_Output/Output_Plotcon" && display *png', shell=True, check=True)
-    print(f"Plot the sequence conservation is completed. The output is saved in directory {output_plotcon_directory}")
+    print(f"Plot the sequence conservation is completed. The output is saved in directory {output_plotcon_directory}/n/n")
 except subprocess.CalledProcessError as e:
     print(f"Error running preview output plotcon: {e}")
 
-#---6. Find the interesting domain: _____ -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#---6. Find Percent Identity among our sequences using BLASTP -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------#
+print("---------------Process_03: Analysis Percent Identity using Blastp-------------------------------------------------------------------------------------")
+
+## 6.A Make database Blastp
+## define input and output blast
+input_blast = output_reformat
+output_blast = "Our_Output/output_blastp.txt"
+output_blast_2 = "Our_Output/output_blastp_high_identity.txt"
+## make database blast
+database_blast = "our_database"
+makeblastdb_command = (f'makeblastdb -dbtype prot -in {input_blast} -out {database_blast}')
+try:
+   run11 = subprocess.run(makeblastdb_command, shell=True,check=True)
+   print(f'Successfully makedatabase for blast')
+except subprocess.CalledProcessError as e:
+   print(f'Error running makeblasdb: {e}')
+
+## 6.B Run the Blastp
+### we set the output as tabular
+blastp_command = (f'blastp -query {input_blast} -db {database_blast} -out {output_blast} -outfmt 6')
+try:
+   run12 = subprocess.run(blastp_command, shell=True,check=True)
+   # show results with high  %identity
+   run13 = subprocess.run(f"awk '$3 >95 && $3 <100 {{ print $0 }}' {output_blast} > { output_blast_2}", shell=True,check=True)
+   # show the result of blastp on the screen
+   run14 = subprocess.run(f'head -20 {output_blast_2}', shell=True, check=True)
+   print(f'Successfully run blastp, you can see complete result of blastp in {output_blast} and {output_blast_2}')
+except subprocess.CalledProcessError as e:
+   print(f'Error running blastp: {e}')
+
+
+#---7. Find the interesting domain: Using Blast search entire motif in Prosite  ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+print("---------------Process_04: Searching Motif in Protein Sequences using Blast against Prosite database---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------")
+
+## 7.A Download prosite database
+### Define the location for database
+prosite_database = "Our_Output/prosite_database.dat"
+### Define the command
+prosite_command = (f'wget https://ftp.expasy.org/databases/prosite/prosite.dat -O {prosite_database}')
+### Run the command
+try:
+   run15 = subprocess.run(prosite_command, shell=True, check=True)
+except subprocess.CalledProcessError as e:
+   print(f'Error downloading prosite database: {e}')
+
+## 7.B Running Motif searching using Blast
+## must parse the content of prosite database first, into dictionary
